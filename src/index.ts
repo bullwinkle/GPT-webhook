@@ -22,14 +22,19 @@ class WebhookServer {
   private app: Application;
   private port: number;
   private mongoUrl: string | undefined;
+  private mongoUsername: string | undefined;
+  private mongoPassword: string | undefined;
   private db: Db | null = null;
   private client: MongoClient | null = null;
   private webhooksCollection: Collection<WebhookRequest> | null = null;
+  private readonly appPrefix = 'gpt-webhook';
 
   constructor() {
     this.app = express();
     this.port = parseInt(process.env.PORT || '3000', 10);
     this.mongoUrl = process.env.MONGO_URL;
+    this.mongoUsername = process.env.MONGO_INITDB_ROOT_USERNAME;
+    this.mongoPassword = process.env.MONGO_INITDB_ROOT_PASSWORD;
     
     this.setupMiddleware();
     this.setupRoutes();
@@ -146,14 +151,71 @@ class WebhookServer {
 
     try {
       console.log('Connecting to MongoDB...');
-      this.client = new MongoClient(this.mongoUrl);
+      
+      // Construct MongoDB connection options with authentication
+      const mongoOptions: any = {};
+      
+      if (this.mongoUsername && this.mongoPassword) {
+        mongoOptions.auth = {
+          username: this.mongoUsername,
+          password: this.mongoPassword
+        };
+        console.log('Using MongoDB authentication');
+      }
+
+      this.client = new MongoClient(this.mongoUrl, mongoOptions);
       await this.client.connect();
-      this.db = this.client.db('webhook-server');
-      this.webhooksCollection = this.db.collection<WebhookRequest>('webhooks');
-      console.log('Successfully connected to MongoDB');
+      
+      // Get database name from URL or use default
+      const dbName = this.extractDatabaseName(this.mongoUrl) || 'shared-db';
+      this.db = this.client.db(dbName);
+      
+      // Initialize collections with app prefix
+      await this.initializeCollections();
+      
+      console.log(`Successfully connected to MongoDB database: ${dbName}`);
     } catch (error) {
       console.error('Failed to connect to MongoDB:', error);
       console.log('Continuing without database persistence...');
+    }
+  }
+
+  private extractDatabaseName(url: string): string | null {
+    try {
+      // Extract database name from MongoDB URL
+      const match = url.match(/\/([^/?]+)(\?|$)/);
+      return match ? match[1] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async initializeCollections(): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      const collectionName = `${this.appPrefix}-requests`;
+      
+      // Check if collection exists
+      const collections = await this.db.listCollections({ name: collectionName }).toArray();
+      
+      if (collections.length === 0) {
+        // Create collection if it doesn't exist
+        await this.db.createCollection(collectionName);
+        console.log(`Created collection: ${collectionName}`);
+        
+        // Create indexes for better performance
+        this.webhooksCollection = this.db.collection<WebhookRequest>(collectionName);
+        await this.webhooksCollection.createIndex({ timestamp: -1 });
+        await this.webhooksCollection.createIndex({ 'userInfo.id': 1 });
+        console.log(`Created indexes for collection: ${collectionName}`);
+      } else {
+        console.log(`Collection already exists: ${collectionName}`);
+        this.webhooksCollection = this.db.collection<WebhookRequest>(collectionName);
+      }
+    } catch (error) {
+      console.error('Failed to initialize collections:', error);
+      throw error;
     }
   }
 
@@ -167,7 +229,7 @@ class WebhookServer {
         console.log(`🚀 Webhook server running on port ${this.port}`);
         console.log(`📊 Health check available at: http://localhost:${this.port}/health`);
         console.log(`🎯 Webhook endpoint: http://localhost:${this.port}/nahui-gpt/income`);
-        console.log(`💾 Database: ${this.db ? 'MongoDB connected' : 'In-memory logging only'}`);
+        console.log(`💾 Database: ${this.db ? `MongoDB connected (collection: ${this.appPrefix}-requests)` : 'In-memory logging only'}`);
       });
 
       // Graceful shutdown
