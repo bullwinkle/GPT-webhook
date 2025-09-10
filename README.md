@@ -67,7 +67,32 @@ Health check endpoint to verify server status.
 
 ## Deployment
 
+### Local Build
+```bash
+# Use the build script
+./build.sh
+
+# Or manually
+npm ci
+npm run build
+npm start
+```
+
 ### Docker
+```bash
+# First build the project locally
+npm run build
+
+# Build Docker image
+docker build -t gpt-webhook-server .
+
+# Run container
+docker run -p 3000:3000 -e MONGO_URL="your-mongodb-url" gpt-webhook-server
+```
+
+**Note**: The Docker setup uses pre-built files from the `dist/` directory. Make sure to run `npm run build` locally before building the Docker image.
+
+### CapRover
 ```bash
 # Build image
 docker build -t gpt-webhook-server .
