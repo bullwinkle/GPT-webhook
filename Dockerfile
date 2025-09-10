@@ -8,10 +8,14 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci && npm cache clean --force
+RUN npm install && npm cache clean --force
 
-# Copy built application (pre-built locally)
-COPY dist ./dist
+# Copy source code and configuration files
+COPY src ./src
+COPY tsconfig.json ./
+
+# Build the TypeScript application
+RUN npm run build
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs
