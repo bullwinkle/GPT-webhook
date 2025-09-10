@@ -12,5 +12,4 @@ coverage
 .DS_Store
 .vscode
 .idea
-src
-tsconfig.json
+dist
